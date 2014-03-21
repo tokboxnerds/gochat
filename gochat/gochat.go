@@ -48,6 +48,16 @@ func handleChat(c appengine.Context, m *xmpp.Message) {
 	    reply.Send(c)
 	}
 	if !found {
+		if strings.Split(sender, "@")[1] != "tokbox.com" {
+			reply := &xmpp.Message{
+	    	Sender: m.To[0],
+	        To: []string{sender},
+	        Body: "You are not authorized to join this room",
+	    	}
+	    	reply.Send(c)
+			return
+		}
+
 		key := datastore.NewIncompleteKey(c, "User", nil)
 		u := &User{
 	        Room: room,
