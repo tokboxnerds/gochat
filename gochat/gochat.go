@@ -7,7 +7,6 @@ import (
     "appengine"
     "appengine/datastore"
     "appengine/xmpp"
-    "errors"
 )
 
 type User struct {
@@ -18,10 +17,13 @@ type User struct {
     Presence string
 }
 
-var (
-        ErrPresenceUnavailable = errors.New("xmpp: presence unavailable")
-        ErrInvalidJID          = errors.New("xmpp: invalid JID")
-)
+func bareJid(str string) string {
+	return strings.Split(str, "/")[0]
+}
+
+func username(str string) string {
+	return strings.Split(str, "@")[0]
+}
 
 func init() {
     http.HandleFunc("/_ah/xmpp/presence/available/", handleOnline)
@@ -31,33 +33,26 @@ func init() {
 
 func handleOnline(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
-	var sender = strings.Split(r.FormValue("from"), "/")[0]
-	updatePresence(c, "online", sender)
+	updatePresence(c, "online", bareJid(r.FormValue("from")))
 }
 
 
 func handleOffline(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
-	var sender = strings.Split(r.FormValue("from"), "/")[0]
-	updatePresence(c, "offline", sender)
+	updatePresence(c, "offline", bareJid(r.FormValue("from")))
 }
 
 func updatePresence(c appengine.Context, status string, sender string) {
-	
-
 	q := datastore.NewQuery("User").Filter("JID =", sender).Limit(100)
-	
+
 	users := make([]User, 0, 100)
 	keys, _ := q.GetAll(c, &users)
 
 	i := 0
 	for _, user := range users {
-		if user.JID == sender {
-
-			user.Presence = status
-		    datastore.Put(c, keys[i], &user)
-		    i++;
-	    }
+		user.Presence = status
+		datastore.Put(c, keys[i], &user)
+		i++;
 	}
 }
 
@@ -65,14 +60,13 @@ func handleHelp(c appengine.Context, m *xmpp.Message) {
 	reply := &xmpp.Message{
 	    Sender: m.To[0],
 	    To: []string{m.Sender},
-	    Body: "/meet Create a meet tokbox room\r\n/list Show the list of people subscribed to this room" ,
+	    Body: "/meet Create a meet tokbox room\r\n/list Show the list of people subscribed to this room\r\n/pp Time for ping pong" ,
 	}
 	reply.Send(c)
 }
 
 func handleList(c appengine.Context, m *xmpp.Message) {
-
-	room := strings.Split(m.To[0], "@")[0]
+	room := username(m.To[0])
 	q := datastore.NewQuery("User").Filter("Room =", room).Limit(100)
 	users := make([]User, 0, 100)
 	q.GetAll(c, &users)
@@ -81,25 +75,27 @@ func handleList(c appengine.Context, m *xmpp.Message) {
 	for _, user := range users {
 		name := user.Name
 		if name == "" {
-			name = strings.Split(user.JID, "@")[0]
+			name = username(user.JID)
 		}
 
-		name += "[" + user.Presence + "]"
+		if user.Presence == "online" {
+			name += " [" + user.Presence + "]"
+		}
 		names = append(names, name)
 	}
 
 	reply := &xmpp.Message{
 	    Sender: m.To[0],
 	    To: []string{m.Sender},
-	    Body: "People in this room " + strings.Join(names, ", "),
+	    Body: "People in this room: " + strings.Join(names, ", "),
 	}
 	reply.Send(c)
 }
 
 func broadcast(c appengine.Context, m *xmpp.Message, body string) {
-	room := strings.Split(m.To[0], "@")[0]
-	sender := strings.Split(m.Sender, "/")[0]
-	name := strings.Split(sender, "@")[0]
+	room := username(m.To[0])
+	sender := bareJid(m.Sender)
+	name := username(sender)
 
 	q := datastore.NewQuery("User").Filter("Room =", room).Limit(100)
 	users := make([]User, 0, 100)
@@ -118,26 +114,30 @@ func broadcast(c appengine.Context, m *xmpp.Message, body string) {
 func handleMeet(c appengine.Context, m *xmpp.Message) {
 	room := ""
 	fields := strings.Fields(m.Body)
-	if (len(fields) > 1) {
-		room = strings.Split(m.Body, " ")[1]
+	if len(fields) > 1 {
+		room = fields[1]
 	} else {
-		room = strings.Split(m.To[0], "@")[0]	
+		room = username(m.To[0])
 	}
 
 	broadcast(c, m, "Connect to this room https://meet.tokbox.com/" + room)
+}
+
+func handlePingPong(c appengine.Context, m *xmpp.Message) {
+	broadcast(c, m, "Time for ping pong")
 }
 
 var commands = map[string]func(appengine.Context, *xmpp.Message)() {
 	"help": handleHelp,
 	"list": handleList,
 	"meet": handleMeet,
+	"pp": handlePingPong,
 }
 
-
 func handleChat(c appengine.Context, m *xmpp.Message) {
-	room := strings.Split(m.To[0], "@")[0]
-	sender := strings.Split(m.Sender, "/")[0]
-	name := strings.Split(sender, "@")[0]
+	room := username(m.To[0])
+	sender := bareJid(m.Sender)
+	name := username(sender)
 
 	q := datastore.NewQuery("User").Filter("Room =", room).Limit(100)
 	users := make([]User, 0, 100)
@@ -159,7 +159,8 @@ func handleChat(c appengine.Context, m *xmpp.Message) {
 		reply := &xmpp.Message{
 	    	Sender: m.To[0],
 	        To: []string{user.JID},
-	        //Body: "<message to='" + sender + "' type='chat'><body>" + m.Body + "</body><nick xmlns='http://jabber.org/protocol/nick'>" + strings.Split(m.Sender, "@")[0] + "</nick></message>",
+	        // nickname extension only supported in presence stanzas by PSI :(
+	        //Body: "<body>" + m.Body + "</body><nick xmlns='http://jabber.org/protocol/nick'>" + strings.Split(m.Sender, "@")[0] + "</nick>",
 	        Body: "[" + name + "] " + m.Body,
 	        //RawXML: true,
 	    }
@@ -167,7 +168,8 @@ func handleChat(c appengine.Context, m *xmpp.Message) {
 	}
 
 	if found && command {
-		commands[m.Body[1:5]](c, m)
+		key := strings.Fields(m.Body)[0][1:]
+		commands[key](c, m)
 	}
 
 	if !found {
