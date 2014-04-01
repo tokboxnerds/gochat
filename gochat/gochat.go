@@ -60,7 +60,10 @@ func handleHelp(c appengine.Context, m *xmpp.Message) {
 	reply := &xmpp.Message{
 	    Sender: m.To[0],
 	    To: []string{m.Sender},
-	    Body: "/meet Create a meet tokbox room\r\n/list Show the list of people subscribed to this room\r\n/pp Time for ping pong" ,
+	    Body: "/meet Create a meet tokbox room\r\n" +
+	          "/list Show the list of people subscribed to this room\r\n" +
+	          "/leave Leave this room\r\n" +
+	          "/pp Time for ping pong" ,
 	}
 	reply.Send(c)
 }
@@ -123,6 +126,27 @@ func handleMeet(c appengine.Context, m *xmpp.Message) {
 	broadcast(c, m, "Connect to this room https://meet.tokbox.com/" + room)
 }
 
+func handleLeave(c appengine.Context, m *xmpp.Message) {
+	room := username(m.To[0])
+	sender := bareJid(m.Sender)
+
+	q := datastore.NewQuery("User").Filter("JID =", sender).Filter("Room =", room).Limit(1)
+
+	users := make([]User, 0, 1)
+	keys, _ := q.GetAll(c, &users)
+
+	if len(keys) != 0 {
+		datastore.Delete(c, keys[0])
+
+		reply := &xmpp.Message{
+	    	Sender: m.To[0],
+	        To: []string{m.Sender},
+	        Body: "Good bye. Come back soon!!!",
+	    }
+	    reply.Send(c)
+	}
+}
+
 func handlePingPong(c appengine.Context, m *xmpp.Message) {
 	broadcast(c, m, "Time for ping pong")
 }
@@ -131,6 +155,7 @@ var commands = map[string]func(appengine.Context, *xmpp.Message)() {
 	"help": handleHelp,
 	"list": handleList,
 	"meet": handleMeet,
+	"leave": handleLeave,
 	"pp": handlePingPong,
 }
 
@@ -176,7 +201,7 @@ func handleChat(c appengine.Context, m *xmpp.Message) {
 		if strings.Split(sender, "@")[1] != "tokbox.com" {
 			reply := &xmpp.Message{
 	    		Sender: m.To[0],
-	        	To: []string{sender},
+	        	To: []string{m.Sender},
 	        	Body: "You are not authorized to join this room",
 	    	}
 	    	reply.Send(c)
@@ -197,7 +222,7 @@ func handleChat(c appengine.Context, m *xmpp.Message) {
 	    }
 	   	reply := &xmpp.Message{
 	    	Sender: m.To[0],
-	        To: []string{u.JID},
+	        To: []string{m.Sender},
 	        Body: "Welcome to the room " + room + "!!!",
 	    }
 	    reply.Send(c)
