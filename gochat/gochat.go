@@ -129,6 +129,7 @@ func handleMeet(c appengine.Context, m *xmpp.Message) {
 func handleLeave(c appengine.Context, m *xmpp.Message) {
 	room := username(m.To[0])
 	sender := bareJid(m.Sender)
+	name := username(sender)
 
 	q := datastore.NewQuery("User").Filter("JID =", sender).Filter("Room =", room).Limit(1)
 
@@ -145,6 +146,8 @@ func handleLeave(c appengine.Context, m *xmpp.Message) {
 	    }
 	    reply.Send(c)
 	}
+	//Send message to room
+	broadcast(c, m, "User " + name + " has left the room")
 }
 
 func handlePingPong(c appengine.Context, m *xmpp.Message) {
@@ -152,6 +155,7 @@ func handlePingPong(c appengine.Context, m *xmpp.Message) {
 }
 
 var commands = map[string]func(appengine.Context, *xmpp.Message)() {
+	//TODO: Features - timeout : 3 blocks for a user results in a 5 minutes block.
 	"help": handleHelp,
 	"list": handleList,
 	"meet": handleMeet,
