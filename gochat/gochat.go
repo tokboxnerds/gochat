@@ -396,7 +396,9 @@ func handleChat(c appengine.Context, m *xmpp.Message) {
         bodyLower := strings.ToLower(m.Body)
         for _, keyword := range keywords {
             if (strings.Contains(bodyLower, keyword.Value)) {
-                announce(c, m, fmt.Sprintf("It has been 0 days since %v was last discussed. The last person to bring it up was %v.", strings.Title(keyword.Value), keyword.LastUser), keyword.Value)
+                lastDays := int(time.Duration.Hours(time.Now().Sub(keyword.LastUsed)) / 24)
+                
+                announce(c, m, fmt.Sprintf("It has been 0 days since %v was last discussed. The last person to bring it up was %v, %d days ago.", strings.Title(keyword.Value), keyword.LastUser, lastDays), keyword.Value)
                 touchKeyword(c, m, keyword)
             }
         }
